@@ -1,38 +1,77 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'pages/scan_result.dart';
+import 'services/globals.dart';
 
 void main() => runApp(const MyApp());
 
-class MyApp extends StatefulWidget {
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+class MyApp extends StatelessWidget {
   const MyApp({super.key});
+
   @override
-  State<MyApp> createState() => _MyAppState();
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'ADB OTG',
+      navigatorKey: navigatorKey, // 加了 key
+      home: const HomePage(),     // 用一个新的页面管理界面
+    );
+  }
 }
 
-class _MyAppState extends State<MyApp> {
+class HomePage extends StatefulWidget {
+  const HomePage({super.key});
+
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   static const _channel = MethodChannel('com.htetznaing.adbotg/usb');
 
-  String _status = 'Not connected';
-  List<String> _packages = [];
+  void _restorePlatformCallHandler() {
+    _channel.setMethodCallHandler(_platformCallHandler);
+  }
 
   @override
   void initState() {
     super.initState();
-    // listen for both status updates and shell output
     _channel.setMethodCallHandler(_platformCallHandler);
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this); // 清除 observer
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // debugPrint('🔄 App resumed — checking connection status...');
+      _queryConnectionStatus(); // 返回页面时主动检查连接状态
+    }
+  }
+
+  Future<void> _queryConnectionStatus() async {
+    try {
+      final bool? status = await _channel.invokeMethod<bool>('isConnected');
+      connectionStatus.value = status == true ? 'connected' : 'disconnected';
+    } catch (_) {
+      connectionStatus.value = 'disconnected';
+    }
   }
 
   Future<void> _platformCallHandler(MethodCall call) async {
     switch (call.method) {
       case 'onStatus':
-        setState(() => _status = call.arguments as String);
-        break;
-      case 'onOutput':
-        final line = (call.arguments as String).trim();
-        // collect only package lines
-        if (line.startsWith('package:')) {
-          setState(() => _packages.add(line.substring(8)));
-        }
+        final status = call.arguments as String;
+        // setState(() {
+        //   _status = status;
+        // });
+        connectionStatus.value = status; // 更新全局状态
         break;
     }
   }
@@ -40,77 +79,58 @@ class _MyAppState extends State<MyApp> {
   Future<void> _connect() async {
     try {
       await _channel.invokeMethod('requestConnection');
-      setState(() => _status = 'Permission requested…');
+      setState(() {
+        connectionStatus.value = 'Permission requested…';
+      });
     } on PlatformException catch (e) {
-      setState(() => _status = 'Connect failed: ${e.message}');
+      setState(() {
+        connectionStatus.value = 'Connect failed: ${e.message}';
+      });
     }
-  }
-
-  Future<void> _runId() async {
-    try {
-      final out = await _channel.invokeMethod<String>(
-        'runCommand',
-        {'command': 'id'},
-      );
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(out ?? '')));
-    } on PlatformException catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Error: ${e.message}')));
-    }
-  }
-
-  Future<void> _listPackages() async {
-    // clear previous list
-    setState(() => _packages.clear());
-    // send into the interactive shell
-    await _channel.invokeMethod(
-      'sendCommand',
-      {'command': 'pm list packages'},
-    );
-    // now wait: as the Java reader thread sees each "package:..." line,
-    // it will fire onOutput callbacks that we collect above.
   }
 
   @override
   Widget build(BuildContext context) {
-    final bool canList = _status == 'connected';
-    return MaterialApp(
-      title: 'ADB OTG',
-      home: Scaffold(
-        appBar: AppBar(title: const Text('ADB OTG')),
-        body: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              Row(children: [
-                const Text('Status: ', style: TextStyle(fontWeight: FontWeight.bold)),
-                Expanded(child: Text(_status)),
-              ]),
-              const SizedBox(height: 12),
-              Wrap(spacing: 12, children: [
-                ElevatedButton(onPressed: _connect, child: const Text('Connect USB')),
-                ElevatedButton(onPressed: _runId,    child: const Text('Run "id"')),
-                ElevatedButton(
-                  onPressed: canList ? _listPackages : null,
-                  child: const Text('List Packages'),
-                ),
-              ]),
-              const SizedBox(height: 12),
-              if (_packages.isNotEmpty) ...[
-                const Text('Packages:', style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: _packages.length,
-                    itemBuilder: (_, i) => Text(_packages[i]),
+    return Scaffold(
+      appBar: AppBar(title: const Text('ADB OTG')),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: ValueListenableBuilder<String>(
+          valueListenable: connectionStatus,
+          builder: (context, status, _) {
+            return Column(
+              children: [
+                Row(children: [
+                  const Text('Status: ', style: TextStyle(fontWeight: FontWeight.bold)),
+                  Expanded(child: Text(status)),
+                ]),
+                const SizedBox(height: 12),
+                Wrap(spacing: 12, children: [
+                  ElevatedButton(onPressed: _connect, child: const Text('Connect USB')),
+                  ElevatedButton(
+                    onPressed: status == 'connected'
+                        ? () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const ScanResultPage(),
+                        ),
+                      ).then((_) {
+                        // 页面返回时刷新状态
+                        _queryConnectionStatus();
+                      });
+                    }
+                        : null,
+                    child: const Text('Go to Scan Result'),
                   ),
-                ),
+                ]),
               ],
-            ],
-          ),
+            );
+          },
         ),
+
       ),
     );
   }
 }
+

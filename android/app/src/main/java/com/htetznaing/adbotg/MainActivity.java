@@ -66,6 +66,8 @@ public class MainActivity extends FlutterActivity{
     private AdbStream stream;
     private MethodChannel flutterChannel;
     private static final String CHANNEL = "com.htetznaing.adbotg/usb"; //added
+    private boolean isConnected = false;// added, used to monitor connect status
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -82,18 +84,21 @@ public class MainActivity extends FlutterActivity{
                         initCommand();
                         try {
                             flutterChannel.invokeMethod("onStatus", "connected");
+                            isConnected = true;
                         } catch (Exception ignored) {}
                         Log.i("ADB_OTG", "Init command done.");
                         break;
 
                     case CONNECTING:
                         try {
+                            isConnected = false;
                             flutterChannel.invokeMethod("onStatus", "connecting");
                         } catch (Exception ignored) {}
                         break;
 
                     case DEVICE_NOT_FOUND:
                         try {
+                            isConnected = false;
                             flutterChannel.invokeMethod("onStatus", "disconnected");
                         } catch (Exception ignored) {}
                         break;
@@ -186,6 +191,10 @@ public class MainActivity extends FlutterActivity{
                             // 这里直接写入到那个已打开的 interactive shell
                             putCommand(sendcmd);
                             result.success(null);
+                            break;
+
+                        case "isConnected":
+                            result.success(isConnected); // return isConnected
                             break;
 
                         default:
@@ -291,6 +300,7 @@ public class MainActivity extends FlutterActivity{
             String action = intent.getAction();
             Log.d(Const.TAG, "mUsbReceiver onReceive => "+action);
             if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) {
+                isConnected = false; // added
                 UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
                 String deviceName = device.getDeviceName();
                 if (mDevice != null && mDevice.getDeviceName().equals(deviceName)) {
@@ -351,6 +361,7 @@ public class MainActivity extends FlutterActivity{
     private synchronized boolean setAdbInterface(UsbDevice device, UsbInterface intf) throws IOException, InterruptedException {
         if (adbConnection != null) {
             adbConnection.close();
+            isConnected = false;
             adbConnection = null;
             mDevice = null;
         }
@@ -394,6 +405,7 @@ public class MainActivity extends FlutterActivity{
         try {
             if (adbConnection != null) {
                 adbConnection.close();
+                isConnected = false;
                 adbConnection = null;
             }
         } catch (IOException e) {
@@ -429,6 +441,8 @@ public class MainActivity extends FlutterActivity{
                         final String line = new String(data, "US-ASCII");
                         runOnUiThread(() -> {
                             flutterChannel.invokeMethod("onOutput", line);
+                            // send signal to frontend to show the end of output
+                            // flutterChannel.invokeMethod("onOutput", "__done__");
                         });
                     } catch (UnsupportedEncodingException e) {
                         e.printStackTrace();
