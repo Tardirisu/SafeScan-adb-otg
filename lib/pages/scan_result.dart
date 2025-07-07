@@ -73,21 +73,21 @@ class _ScanResultPageState extends State<ScanResultPage> {
     for (var line in lines) {
       final trimmed = line.trim();
       if (trimmed.isEmpty) continue;
-      // print('📥 处理拆分后行: "$trimmed"');
+      // print('处理拆分后行: "$trimmed"');
       if (trimmed == 'redfin:/ \$') {
         if (!_isReceiving) {
-          // print('⚠️ 没有开始接收但收到了 redfin，忽略');
+          // print('没有开始接收但收到了 redfin，忽略');
           return;
         }
         _isReceiving = false;
-        await _loadRiskList(); // ⬅️ 下面我们定义这个函数
+        await _loadRiskList();
         Future.delayed(Duration(milliseconds: 50), () {
           if (mounted) {
             setState(() {
               _packages = List.from(_tempBuffer);
               _isScanning = false;
             });
-            // print('✅ 更新 UI，展示 ${_packages.length} 个应用');
+            // print('更新 UI，展示 ${_packages.length} 个应用');
           }
         });
       } else if (trimmed.startsWith('package:')) {
@@ -98,10 +98,10 @@ class _ScanResultPageState extends State<ScanResultPage> {
         final pkg = trimmed.substring(8).trim();
         if (pkg.isNotEmpty) {
           _tempBuffer.add(pkg);
-          // print('📦 加入包: $pkg, 当前数量: ${_tempBuffer.length}');
+          // print('加入包: $pkg, 当前数量: ${_tempBuffer.length}');
         }
       } else {
-        // print('⚠️ 非 package 行被忽略: "$trimmed"');
+        // print('非 package 行被忽略: "$trimmed"');
       }
     }
   }
