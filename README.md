@@ -5,7 +5,7 @@ To build and run this Flutter project locally:
 ### 1. Clone the repository
 ```bash
 git clone https://github.com/Tardirisu/SafeScan-adb-otg.git
-cd test connect
+cd SafeScan-adb-otg
 
 ````
 
