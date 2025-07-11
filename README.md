@@ -1,8 +1,4 @@
 
-* **USB Host Mode Requirement**
-  When connecting, make sure the target device’s USB settings choose **“controlled by → this device”** so it functions as a host.
-
-
 ##  Setup & Compile
 To build and run this Flutter project locally:
 
@@ -44,6 +40,9 @@ flutter run
 ```
 You will be prompted to select a connected device or emulator.
 
+**USB Host Mode Requirement**
+  When connecting, make sure the target device’s USB settings choose **“controlled by → this device”** .
+
 
 ## Development Environment
 
@@ -76,5 +75,5 @@ This project is built upon and inspired by the following open-source projects:
 
 
 * **Current Progress & Next Steps**
-  • Connection and package-listing via ADB-OTG are fully implemented.
+  • Connection and scanning via ADB-OTG are fully implemented.
   • We’re now migrating additional ADB-SafeScan features into this codebase, and adding wireless connection & scan support through Termux.
