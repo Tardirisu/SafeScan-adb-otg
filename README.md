@@ -44,6 +44,30 @@ You will be prompted to select a connected device or emulator.
   When connecting, make sure the target device’s USB settings choose **“controlled by → this device”** .
 
 
+### 6. Exporting Debug Logs
+
+This project mainly uses the following log tags: **ADB_OTG** and **ADB_DEBUG**.  
+When debugging, you can filter these tags and export the logs to a file using the commands below.
+
+### Method 1: Specify tags directly
+```bash
+adb logcat -s ADB_OTG ADB_DEBUG > logs.txt
+````
+
+This command captures only logs with the `ADB_OTG` and `ADB_DEBUG` tags and writes them to `logs.txt`.
+
+---
+
+### Method 2: Use grep for filtering
+
+```bash
+adb logcat | grep -E "ADB_OTG|ADB_DEBUG" > logs.txt
+```
+
+This command captures all logs and then filters only those containing `ADB_OTG` or `ADB_DEBUG`, writing them to `logs.txt`.
+
+
+
 ## Development Environment
 
 This project was developed and tested with:

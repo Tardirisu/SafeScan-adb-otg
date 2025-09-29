@@ -68,41 +68,79 @@ class _ScanResultPageState extends State<ScanResultPage> {
     if (call.method != 'onOutput') return;
 
     final raw = (call.arguments as String);
-    final lines = raw.split('\n');  // 兼容一次性多行传入
+    final lines = raw.split('\n');
 
     for (var line in lines) {
       final trimmed = line.trim();
       if (trimmed.isEmpty) continue;
-      // print('处理拆分后行: "$trimmed"');
-      if (trimmed == 'redfin:/ \$') {
-        if (!_isReceiving) {
-          // print('没有开始接收但收到了 redfin，忽略');
-          return;
-        }
-        _isReceiving = false;
-        await _loadRiskList();
-        Future.delayed(Duration(milliseconds: 50), () {
-          if (mounted) {
-            setState(() {
-              _packages = List.from(_tempBuffer);
-              _isScanning = false;
-            });
-            // print('更新 UI，展示 ${_packages.length} 个应用');
-          }
-        });
-      } else if (trimmed.startsWith('package:')) {
+
+      print('process line: "$trimmed"');
+
+      if (trimmed.startsWith('package:')) {
         if (!_isReceiving) {
           _isReceiving = true;
           _tempBuffer.clear();
         }
         final pkg = trimmed.substring(8).trim();
-        if (pkg.isNotEmpty) {
+        if (pkg.isNotEmpty && !_tempBuffer.contains(pkg)) {
           _tempBuffer.add(pkg);
-          // print('加入包: $pkg, 当前数量: ${_tempBuffer.length}');
+          print('found: $pkg, current number: ${_tempBuffer.length}');
+
+          // 实时更新UI显示进度
+          if (mounted) {
+            setState(() {
+              _packages = List.from(_tempBuffer);
+            });
+          }
         }
-      } else {
-        // print('非 package 行被忽略: "$trimmed"');
       }
+      // 灵活判断结束标志
+      else if (_isShellPromptLine(trimmed)) {
+        print(' detect Shell prompt，scan finished');
+        _completeScan();
+      }
+    }
+  }
+
+// 灵活判断Shell提示符
+  bool _isShellPromptLine(String line) {
+    // 匹配常见的Shell提示符模式
+    final promptPatterns = [
+      r'^[a-zA-Z0-9_\-]+:/ \$$',  // 如: "HNFNE:/ $", "redfin:/ $"
+      r'^[a-zA-Z0-9_\-]+:/ #$',   // root权限的提示符
+      r'^[a-zA-Z0-9_\-]+:/ \$ $', // 可能有空格变体
+      r'^[a-zA-Z0-9_\-]+ #$',     // 简化的root提示符
+      r'^[a-zA-Z0-9_\-]+ \$$',    // 简化的用户提示符
+    ];
+
+    for (var pattern in promptPatterns) {
+      if (RegExp(pattern).hasMatch(line)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _completeScan() {
+    if (!_isReceiving) return;
+
+    _isReceiving = false;
+    _isScanning = false;
+
+    if (mounted) {
+      setState(() {
+        _packages = List.from(_tempBuffer);
+      });
+      _loadRiskList();
+      print('Scan finished！Found ${_packages.length} apps in total');
+
+      // 可选：显示完成提示
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Scan finished. Found ${_packages.length} apps in total'),
+          duration: Duration(seconds: 2),
+        ),
+      );
     }
   }
 

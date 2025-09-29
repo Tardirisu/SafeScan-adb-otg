@@ -56,6 +56,7 @@ import io.flutter.embedding.android.FlutterActivity;
 import io.flutter.embedding.engine.FlutterEngine;
 import io.flutter.plugin.common.MethodChannel;
 
+import android.util.Log;
 
 public class MainActivity extends FlutterActivity{
     private Handler handler;
@@ -175,29 +176,36 @@ public class MainActivity extends FlutterActivity{
                 CHANNEL
         );
         flutterChannel.setMethodCallHandler((call, result) -> {
+            Log.d("ADB_DEBUG", "MethodChannel call: " + call.method);
                     switch (call.method) {
                         case "requestConnection":
+                            Log.d("ADB_DEBUG", "Requesting USB connection");
                             requestUsbConnection();
                             result.success(null);
                             break;
                         case "runCommand":
                             String runcmd = call.argument("command");
+                            Log.d("ADB_DEBUG", "runCommand: " + runcmd);
                             String output = runAdbCommand(runcmd);
+                            Log.d("ADB_DEBUG", "runCommand output length: " + (output != null ? output.length() : "null"));
                             result.success(output);
                             break;
 
                         case "sendCommand":
                             String sendcmd = call.argument("command");
+                            Log.d("ADB_DEBUG", "sendCommand: " + sendcmd);
                             // 这里直接写入到那个已打开的 interactive shell
                             putCommand(sendcmd);
                             result.success(null);
                             break;
 
                         case "isConnected":
+                            Log.d("ADB_DEBUG", "isConnected check: " + isConnected);
                             result.success(isConnected); // return isConnected
                             break;
 
                         default:
+                            Log.d("ADB_DEBUG", "Unknown method: " + call.method);
                             result.notImplemented();
                     }
                 });
@@ -359,7 +367,9 @@ public class MainActivity extends FlutterActivity{
 
     //检查一下这部分
     private synchronized boolean setAdbInterface(UsbDevice device, UsbInterface intf) throws IOException, InterruptedException {
+        Log.d("ADB_DEBUG", "setAdbInterface() called, device: " + (device != null ? device.getDeviceName() : "null"));
         if (adbConnection != null) {
+            Log.d("ADB_DEBUG", "Closing existing ADB connection");
             adbConnection.close();
             isConnected = false;
             adbConnection = null;
@@ -367,26 +377,35 @@ public class MainActivity extends FlutterActivity{
         }
 
         if (device != null && intf != null) {
+            Log.d("ADB_DEBUG", "Attempting to connect to device: " + device.getDeviceName());
             UsbDeviceConnection connection = mManager.openDevice(device);
             if (connection != null) {
+                Log.d("ADB_DEBUG", "USB connection opened successfully");
                 if (connection.claimInterface(intf, false)) {
+                    Log.d("ADB_DEBUG", "Interface claimed successfully");
                     handler.sendEmptyMessage(CONNECTING);
                     adbConnection = AdbConnection.create(new UsbChannel(connection, intf), adbCrypto);
+                    Log.d("ADB_DEBUG", "ADB connection created, attempting connect...");
                     adbConnection.connect();
+                    Log.d("ADB_DEBUG", "ADB connected successfully");
                     //TODO: DO NOT DELETE IT, I CAN'T EXPLAIN WHY
                     // 创建一个 shell 通道（类似打开 socket 端口）。
+                    Log.d("ADB_DEBUG", "Sending test command: exec date");
                     adbConnection.open("shell:exec date");
+                    Log.d("ADB_DEBUG", "Test command completed");
 
                     mDevice = device;
                     handler.sendEmptyMessage(DEVICE_FOUND);
                     Log.i("ADB_OTG", ">> DEVICE_FOUND");
                     return true;
                 } else {
+                    Log.e("ADB_DEBUG", "Failed to claim interface");
                     connection.close();
                 }
             }
         }
 
+        Log.d("ADB_DEBUG", "Connection failed, sending DEVICE_NOT_FOUND");
         handler.sendEmptyMessage(DEVICE_NOT_FOUND);
 
         mDevice = null;
@@ -415,17 +434,22 @@ public class MainActivity extends FlutterActivity{
     }
 
     private void initCommand(){
+        Log.d("ADB_DEBUG", "initCommand() started");
         // Open the shell stream of ADB
         try {
             //用于执行自定义命令（用户在 UI 输入的）。
             stream = adbConnection.open("shell:");
+            Log.d("ADB_DEBUG", "Shell stream opened successfully");
         } catch (UnsupportedEncodingException e) {
+            Log.e("ADB_DEBUG", "Failed to open shell stream: " + e.getMessage());
             e.printStackTrace();
             return;
         } catch (IOException e) {
+            Log.e("ADB_DEBUG", "Failed to open shell stream: " + e.getMessage());
             e.printStackTrace();
             return;
         } catch (InterruptedException e) {
+            Log.e("ADB_DEBUG", "Failed to open shell stream: " + e.getMessage());
             e.printStackTrace();
             return;
         }
@@ -434,41 +458,67 @@ public class MainActivity extends FlutterActivity{
         new Thread(new Runnable() {
             @Override
             public void run() {
+                Log.d("ADB_DEBUG", "Output reading thread started");
+                int readCount = 0;
+
                 while (!stream.isClosed()) {
                     try {
+                        Log.d("ADB_DEBUG", "Waiting to read data... attempt: " + (++readCount));
                         byte[] data = stream.read();
-                        if (data == null || data.length == 0) continue;
+                        if (data == null || data.length == 0) {
+                            Log.d("ADB_DEBUG", "Read null or empty data");
+                            continue;
+                        }
+
+                        Log.d("ADB_DEBUG", "Received data length: " + data.length + " bytes");
+
                         final String line = new String(data, "US-ASCII");
                         runOnUiThread(() -> {
+                            Log.d("ADB_DEBUG", "Sending to Flutter channel, output length: " + line.length());
                             flutterChannel.invokeMethod("onOutput", line);
+                            Log.d("ADB_DEBUG", "Successfully sent to Flutter");
                             // send signal to frontend to show the end of output
                             // flutterChannel.invokeMethod("onOutput", "__done__");
                         });
                     } catch (UnsupportedEncodingException e) {
+                        Log.e("ADB_DEBUG", "Encoding error: " + e.getMessage());
                         e.printStackTrace();
                         return;
                     } catch (InterruptedException e) {
+                        Log.e("ADB_DEBUG", "Thread interrupted: " + e.getMessage());
                         e.printStackTrace();
                         return;
                     } catch (IOException e) {
+                        Log.e("ADB_DEBUG", "IO error: " + e.getMessage());
                         e.printStackTrace();
                         return;
                     }
                 }
             }
         }).start();
+
+        Log.d("ADB_DEBUG", "initCommand() completed");
     }
 
     // 直接向 interactive shell 写命令，不依赖任何 EditText
     private void putCommand(String cmd) {
-        if (cmd == null || cmd.trim().isEmpty()) return;
+        Log.d("ADB_DEBUG", "putCommand() called with: " + cmd);
+
+        if (cmd == null || cmd.trim().isEmpty()) {
+            Log.d("ADB_DEBUG", "Command is null or empty");
+            return;
+        }
         try {
             if (cmd.equalsIgnoreCase("exit")) {
+                Log.d("ADB_DEBUG", "Exit command received, finishing activity");
                 finish();
             } else {
+                Log.d("ADB_DEBUG", "Sending command to stream: " + cmd.trim());
                 stream.write((cmd + "\n").getBytes("UTF-8"));
+                Log.d("ADB_DEBUG", "Command sent successfully");
             }
         } catch (IOException | InterruptedException e) {
+            Log.e("ADB_DEBUG", "Error sending command: " + e.getMessage());
             e.printStackTrace();
         }
     }
