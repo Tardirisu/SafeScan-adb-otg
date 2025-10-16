@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-// import '../main.dart';
 import '../services/globals.dart';
 import '../services/csv_utils.dart';
 
@@ -16,20 +15,21 @@ class _ScanResultPageState extends State<ScanResultPage> {
 
   List<String> _packages = [];
   List<String> _tempBuffer = [];
-  bool _isScanning = false; // 是否仍在扫描、计数
-  bool _isReceiving = false; // 是否在接收output
-  Map<String, Map<String, String>> _riskyMap = {}; // packageName -> {flag: ..., title: ...}
+  bool _isScanning = false;
+  bool _isReceiving = false;
+  Map<String, Map<String, String>> _riskyMap = {};
   bool _isRemoteSource = false;
-  bool _showSafeApps = false;
+
+  // 展开状态管理
+  Map<String, bool> _expansionState = {};
 
   @override
   void initState() {
     super.initState();
-    _startScan(); // 页面加载时自动开始扫描
+    _startScan();
     _channel.setMethodCallHandler(_handleOutput);
   }
 
-  // 检查是否已连接
   Future<bool> _checkConnected() async {
     try {
       final bool connected = await _channel.invokeMethod('isConnected');
@@ -40,7 +40,7 @@ class _ScanResultPageState extends State<ScanResultPage> {
   }
 
   Future<void> _startScan() async {
-    final isConnected = await _checkConnected(); // 第一步：判断连接状态
+    final isConnected = await _checkConnected();
     if (!isConnected) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -55,13 +55,12 @@ class _ScanResultPageState extends State<ScanResultPage> {
       _packages.clear();
       _tempBuffer.clear();
       _isScanning = true;
+      _expansionState.clear(); // 清空展开状态
     });
 
-    // 发送扫描命令
     await _channel.invokeMethod('sendCommand', {
       'command': 'pm list packages',
     });
-
   }
 
   Future<void> _handleOutput(MethodCall call) async {
@@ -86,7 +85,6 @@ class _ScanResultPageState extends State<ScanResultPage> {
           _tempBuffer.add(pkg);
           print('found: $pkg, current number: ${_tempBuffer.length}');
 
-          // 实时更新UI显示进度
           if (mounted) {
             setState(() {
               _packages = List.from(_tempBuffer);
@@ -94,7 +92,6 @@ class _ScanResultPageState extends State<ScanResultPage> {
           }
         }
       }
-      // 灵活判断结束标志
       else if (_isShellPromptLine(trimmed)) {
         print(' detect Shell prompt，scan finished');
         _completeScan();
@@ -102,15 +99,13 @@ class _ScanResultPageState extends State<ScanResultPage> {
     }
   }
 
-// 灵活判断Shell提示符
   bool _isShellPromptLine(String line) {
-    // 匹配常见的Shell提示符模式
     final promptPatterns = [
-      r'^[a-zA-Z0-9_\-]+:/ \$$',  // 如: "HNFNE:/ $", "redfin:/ $"
-      r'^[a-zA-Z0-9_\-]+:/ #$',   // root权限的提示符
-      r'^[a-zA-Z0-9_\-]+:/ \$ $', // 可能有空格变体
-      r'^[a-zA-Z0-9_\-]+ #$',     // 简化的root提示符
-      r'^[a-zA-Z0-9_\-]+ \$$',    // 简化的用户提示符
+      r'^[a-zA-Z0-9_\-]+:/ \$$',
+      r'^[a-zA-Z0-9_\-]+:/ #$',
+      r'^[a-zA-Z0-9_\-]+:/ \$ $',
+      r'^[a-zA-Z0-9_\-]+ #$',
+      r'^[a-zA-Z0-9_\-]+ \$$',
     ];
 
     for (var pattern in promptPatterns) {
@@ -134,7 +129,6 @@ class _ScanResultPageState extends State<ScanResultPage> {
       _loadRiskList();
       print('Scan finished！Found ${_packages.length} apps in total');
 
-      // 可选：显示完成提示
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Scan finished. Found ${_packages.length} apps in total'),
@@ -144,7 +138,6 @@ class _ScanResultPageState extends State<ScanResultPage> {
     }
   }
 
-// 从 CSV 中获取风险字典，不管设备上有没有
   Future<void> _loadRiskList() async {
     final csvResult = await fetchCSVData();
     _isRemoteSource = csvResult.isRemote;
@@ -165,31 +158,49 @@ class _ScanResultPageState extends State<ScanResultPage> {
     }
   }
 
-  void _showDetailsDialog(String packageName, Map<String, String> riskInfo) {
+  void _showDetailsDialog(String packageName, Map<String, String>? riskInfo) {
+    final isSafe = riskInfo == null;
+
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text(riskInfo['title'] ?? 'Unknown App'),
-          content: Text('Risk Type: ${riskInfo['flag']}\n\nPackage Name: $packageName'),
+          title: Text(riskInfo?['title'] ?? packageName),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Risk Type: ${riskInfo?['flag'] ?? 'Safe'}'),
+              const SizedBox(height: 8),
+              Text('Package Name: $packageName'),
+              if (isSafe) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'This app is marked as safe.',
+                  style: TextStyle(color: Colors.green[600]),
+                ),
+              ],
+            ],
+          ),
           actions: [
+            // 所有应用都显示设置和删除按钮
             TextButton(
               onPressed: () {
                 Navigator.of(context).pop();
                 _openAppSettingsOnTarget(packageName);
               },
-              child: const Text('Open Settings On Target Device'),
+              child: const Text('Open Settings'),
             ),
             TextButton(
               onPressed: () {
                 Navigator.of(context).pop();
                 _uninstallApp(packageName);
               },
-              child: const Text('Delete this app'),
+              child: const Text('Delete App'),
             ),
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('close'),
+              child: const Text('Close'),
             ),
           ],
         );
@@ -221,15 +232,43 @@ class _ScanResultPageState extends State<ScanResultPage> {
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'onStatus') {
         final status = call.arguments as String;
-        connectionStatus.value = status; // 更新全局状态
+        connectionStatus.value = status;
       }
     });
   }
 
+  // 获取所有风险类型
+  Set<String> _getRiskTypes() {
+    final types = <String>{};
+    for (var risk in _riskyMap.values) {
+      types.add(risk['flag']!);
+    }
+    return types;
+  }
+
+  // 获取指定风险类型的应用列表
+  List<String> _getAppsByRiskType(String riskType) {
+    return _packages.where((pkg) {
+      final riskInfo = _riskyMap[pkg];
+      return riskInfo != null && riskInfo['flag'] == riskType;
+    }).toList();
+  }
+
+  // 获取安全应用列表
+  List<String> _getSafeApps() {
+    return _packages.where((pkg) => !_riskyMap.containsKey(pkg)).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final riskyApps = _packages.where((pkg) => _riskyMap.containsKey(pkg)).toList();
-    final safeApps = _packages.where((pkg) => !_riskyMap.containsKey(pkg)).toList();
+    final riskTypes = _getRiskTypes();
+    final safeApps = _getSafeApps();
+
+    // 初始化展开状态
+    for (var type in riskTypes) {
+      _expansionState.putIfAbsent(type, () => false);
+    }
+    _expansionState.putIfAbsent('Safe', () => false);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Scan Result')),
@@ -241,7 +280,7 @@ class _ScanResultPageState extends State<ScanResultPage> {
               const CircularProgressIndicator()
             else ...[
               Text(
-                'Find ${_packages.length} Apps in total',
+                'Found ${_packages.length} Apps in total',
                 style: const TextStyle(fontSize: 16),
               ),
               const SizedBox(height: 4),
@@ -254,29 +293,24 @@ class _ScanResultPageState extends State<ScanResultPage> {
             ],
             const SizedBox(height: 16),
 
-            // 风险应用显示
+            // 可展开的列表
             Expanded(
               child: _packages.isEmpty
                   ? const Center(child: Text('No data available'))
                   : ListView(
                 children: [
-                  ...riskyApps.map((pkg) => _buildListItem(pkg, _riskyMap[pkg])),
-                  if (_showSafeApps)
-                    ...safeApps.map((pkg) => _buildListItem(pkg, null)),
+                  // 风险类型应用列表
+                  ...riskTypes.map((type) {
+                    final apps = _getAppsByRiskType(type);
+                    return _buildRiskTypeExpansionTile(type, apps);
+                  }),
+
+                  // 安全应用列表
+                  if (safeApps.isNotEmpty)
+                    _buildRiskTypeExpansionTile('Safe', safeApps),
                 ],
               ),
             ),
-
-            // 切换显示按钮
-            if (safeApps.isNotEmpty)
-              TextButton(
-                onPressed: () {
-                  setState(() {
-                    _showSafeApps = !_showSafeApps;
-                  });
-                },
-                child: Text(_showSafeApps ? 'Hide Safe Apps' : 'Show Safe Apps'),
-              ),
 
             const SizedBox(height: 12),
             ElevatedButton(
@@ -289,40 +323,93 @@ class _ScanResultPageState extends State<ScanResultPage> {
     );
   }
 
-  Widget _buildListItem(String pkg, Map<String, String>? risk) {
-    return ListTile(
-      title: Row(
-        children: [
-          // 包名（占 3 份）
-          Expanded(
-            flex: 3,
-            child: Text(pkg),
-          ),
-          // 风险标签（占 2 份）
-          Expanded(
-            flex: 2,
-            child: Text(
-              risk?['flag'] ?? 'Safe',
-              style: TextStyle(
-                color: risk != null ? Colors.red : Colors.green,
-                fontWeight: FontWeight.bold,
+  Widget _buildRiskTypeExpansionTile(String riskType, List<String> apps) {
+    final isSafe = riskType == 'Safe';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ExpansionTile(
+        key: Key(riskType),
+        initiallyExpanded: _expansionState[riskType] ?? false,
+        onExpansionChanged: (expanded) {
+          setState(() {
+            _expansionState[riskType] = expanded;
+          });
+        },
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                '$riskType Apps (${apps.length})',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: isSafe ? Colors.green : Colors.red,
+                ),
               ),
             ),
-          ),
-          // 查看详情按钮（占 2 份）
-          Expanded(
-            flex: 2,
-            child: TextButton(
-              onPressed: risk == null
-                  ? null
-                  : () => _showDetailsDialog(pkg, risk),
-              child: const Text('View Details'),
-            ),
-          ),
+          ],
+        ),
+        children: [
+          if (apps.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Text('No apps in this category'),
+            )
+          else
+            ...apps.asMap().entries.map((entry) {
+              final index = entry.key;
+              final packageName = entry.value;
+              final riskInfo = isSafe ? null : _riskyMap[packageName];
+
+              return _buildAppListItem(
+                packageName: packageName,
+                riskInfo: riskInfo,
+                index: index,
+                isSafe: isSafe,
+              );
+            }),
         ],
       ),
     );
   }
+  Widget _buildAppListItem({
+    required String packageName,
+    required Map<String, String>? riskInfo,
+    required int index,
+    required bool isSafe,
+  }) {
+    // 交替底色
+    final backgroundColor = index % 2 == 0
+        ? Colors.grey[50]
+        : Colors.white;
 
-
+    return Container(
+      color: backgroundColor,
+      child: ListTile(
+        title: Row(
+          children: [
+            // 包名 - 占据主要空间
+            Expanded(
+              child: Text(
+                packageName,
+                style: const TextStyle(fontSize: 14),
+              ),
+            ),
+            // 风险标签 - 靠右显示
+            Text(
+              riskInfo?['flag'] ?? 'Safe',
+              style: TextStyle(
+                color: isSafe ? Colors.green : Colors.red,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        // 整行可点击
+        onTap: () => _showDetailsDialog(packageName, riskInfo),
+        // 添加点击反馈
+        mouseCursor: SystemMouseCursors.click,
+      ),
+    );
+  }
 }
