@@ -4,6 +4,12 @@ A pre-built APK is available in the [Releases](https://github.com/Tardirisu/Safe
 
 The current release is intended for testing and demonstration purposes.
 
+## Demo Video
+
+A full demonstration of SafeScan is available here:
+
+[Watch the SafeScan demo video](https://drive.google.com/file/d/1XAl2BzNnyAZcpmkyryiUkBDJucWMzxu2/view?usp=drive_link)
+
 ## Setup & Compile
 
 To build and run this Flutter project locally:
